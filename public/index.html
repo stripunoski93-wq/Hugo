@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="mk">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HUGO Studio</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="container">
+    <header class="topbar">
+      <h1>HUGO Studio</h1>
+      <div class="header-controls">
+        <button id="connectBtn" class="primary-btn">🔗 Поврзи сметки</button>
+        <label class="mode-toggle">
+          <input id="modeToggle" type="checkbox" />
+          <span>Авто режим</span>
+        </label>
+      </div>
+    </header>
+
+    <section class="services-panel">
+      <h3>Статус на сметки</h3>
+      <div id="servicesStatus" class="services-grid"></div>
+    </section>
+
+    <section class="command-panel">
+      <div class="input-group">
+        <textarea id="commandInput" placeholder="Напишете команда..."></textarea>
+        <div class="button-group">
+          <button id="voiceBtn" class="icon-btn">🎙</button>
+          <button id="submitBtn" class="primary-btn">Прачи</button>
+        </div>
+      </div>
+    </section>
+
+    <div class="grid-2">
+      <section class="panel">
+        <h2>Тимови и агенти</h2>
+        <div id="agentsList" class="agents-list"></div>
+      </section>
+      <section class="panel">
+        <h2>Преглед на меморијата</h2>
+        <div class="search-box">
+          <input id="memorySearch" type="text" placeholder="Пребарување..." />
+        </div>
+        <div id="memoryResults" class="memory-list"></div>
+      </section>
+    </div>
+
+    <section class="board">
+      <div class="board-column">
+        <h2>Тече <span id="runningCount">0</span></h2>
+        <div id="runningBoard" class="cards"></div>
+      </div>
+      <div class="board-column">
+        <h2>Чека одобрување <span id="approvalCount">0</span></h2>
+        <div id="approvalBoard" class="cards"></div>
+      </div>
+      <div class="board-column">
+        <h2>Готово <span id="doneCount">0</span></h2>
+        <div id="doneBoard" class="cards"></div>
+      </div>
+    </section>
+  </div>
+
+  <!-- Service Connection Modal -->
+  <div id="servicesModal" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Поврзи ги сметките</h2>
+        <button class="modal-close" onclick="closeModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p>Кликнете на копче за да се отвори таб за пријава. Пријавете се рачно еднаш; сесијата ќе се запамти.</p>
+        <div id="serviceButtons" class="service-buttons"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

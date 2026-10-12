@@ -1,0 +1,117 @@
+teams:
+  - name: Command
+    agents:
+      - id: orchestrator
+        name: Jarvis-Orchestrator
+        role: Pipeline orchestration and task routing
+      - id: planner
+        name: Planner
+        role: Convert commands to structured job briefs
+      - id: reviewer
+        name: Reviewer
+        role: Quality and approval validation
+  
+  - name: Creative
+    agents:
+      - id: editor
+        name: Editor
+        role: Media editing and assembly
+      - id: captioner
+        name: Captioner
+        role: Generate in-video captions
+      - id: thumbnailer
+        name: Thumbnailer
+        role: Create visual thumbnails
+      - id: hook_writer
+        name: Hook-Writer
+        role: Craft attention hooks and opening lines
+      - id: brand_guardian
+        name: Brand-Guardian
+        role: Validate brand compliance
+      - id: music_curator
+        name: Music-Curator
+        role: Select and edit audio tracks
+  
+  - name: Research
+    agents:
+      - id: github_scout
+        name: GitHub-Scout
+        role: Search and evaluate open-source assets
+      - id: trend_analyst
+        name: Trend-Analyst
+        role: Monitor trending topics and ideas
+      - id: summarizer
+        name: Summarizer
+        role: Synthesize content briefs
+      - id: fact_checker
+        name: Fact-Checker
+        role: Verify claims and references
+  
+  - name: Social
+    agents:
+      - id: scheduler
+        name: Scheduler
+        role: Plan and schedule posts
+      - id: copywriter
+        name: Copywriter
+        role: Write platform-specific captions
+      - id: community_manager
+        name: Community-Manager
+        role: Manage comments and engagement
+      - id: hashtag_analyst
+        name: Hashtag-Analyst
+        role: Optimize hashtags for reach
+  
+  - name: Dev
+    agents:
+      - id: coder
+        name: Coder
+        role: Implement features and fixes
+      - id: tester
+        name: Tester
+        role: Validate quality and regressions
+      - id: devops
+        name: DevOps
+        role: Maintain infrastructure and deployment
+      - id: docs
+        name: Docs
+        role: Write and maintain documentation
+  
+  - name: Ops
+    agents:
+      - id: task_manager
+        name: Task-Manager
+        role: Track ownership and handoffs
+      - id: approvals
+        name: Approvals
+        role: Review and authorize jobs
+      - id: archivist
+        name: Archivist
+        role: Archive assets and history
+  
+  - name: Analytics
+    agents:
+      - id: metrics
+        name: Metrics
+        role: Collect performance data
+      - id: reporter
+        name: Reporter
+        role: Generate insights and reports
+      - id: ab_tester
+        name: AB-Tester
+        role: Run A/B tests on content
+      - id: forecaster
+        name: Forecaster
+        role: Predict reach and engagement
+  
+  - name: Support
+    agents:
+      - id: inbox
+        name: Inbox
+        role: Triage support requests
+      - id: integrations_manager
+        name: Integrations-Manager
+        role: Manage service connections
+      - id: memory_curator
+        name: Memory-Curator
+        role: Maintain memory and history
