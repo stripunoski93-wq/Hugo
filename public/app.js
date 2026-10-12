@@ -1,186 +1,105 @@
-const state = {
-  tasks: [],
-  agents: [],
-  memory: [],
-  ws: null
-};
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { DatabaseSync } from 'node:sqlite';
+import { v4 as uuidv4 } from 'uuid';
 
-function connectWebSocket() {
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  state.ws = new WebSocket(`${protocol}//${window.location.host}`);
-  state.ws.onmessage = (event) => {
-    const data = JSON.parse(event.data);
-    if (data.type === 'task_created') {
-      state.tasks.push(data.task);
-      renderBoard();
-    } else if (data.type === 'task_updated') {
-      const task = state.tasks.find((t) => t.id === data.taskId);
-      if (task) {
-        task.status = data.status;
-        task.progress = data.progress;
-        renderBoard();
-      }
-    }
-  };
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const dataDir = path.join(__dirname, '..', 'data');
+fs.mkdirSync(dataDir, { recursive: true });
+
+const dbPath = path.join(dataDir, 'memory.db');
+const db = new DatabaseSync(dbPath);
+
+db.exec(`
+  PRAGMA journal_mode=WAL;
+
+  CREATE TABLE IF NOT EXISTS memory (
+    id TEXT PRIMARY KEY,
+    key TEXT UNIQUE NOT NULL,
+    value TEXT NOT NULL,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS tasks (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    team TEXT NOT NULL,
+    agent TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'Тече',
+    progress INTEGER DEFAULT 0,
+    payload TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS events (
+    id TEXT PRIMARY KEY,
+    task_id TEXT,
+    type TEXT NOT NULL,
+    detail TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+  );
+`);
+
+export async function initMemory() {
+  return true;
 }
 
-function renderBoard() {
-  const running = state.tasks.filter((t) => t.status === 'Тече');
-  const approval = state.tasks.filter((t) => t.status === 'Чека одобрување' || t.status === 'Тече');
-  const done = state.tasks.filter((t) => t.status === 'Готово' || t.status === 'Отклонено');
-
-  renderCards(running, 'runningBoard');
-  renderCards(approval, 'approvalBoard');
-  renderCards(done, 'doneBoard');
-
-  document.getElementById('runningCount').textContent = running.length;
-  document.getElementById('approvalCount').textContent = approval.length;
-  document.getElementById('doneCount').textContent = done.length;
+export async function memoryGet(key) {
+  const row = db.prepare('SELECT value FROM memory WHERE key = ?').get(key);
+  return row ? JSON.parse(row.value) : null;
 }
 
-function renderCards(tasks, containerId) {
-  const container = document.getElementById(containerId);
-  if (!tasks.length) {
-    container.innerHTML = '<div class="card">Нема задачи.</div>';
-    return;
+export async function memorySet(key, value) {
+  const payload = JSON.stringify(value);
+  const existing = db.prepare('SELECT id FROM memory WHERE key = ?').get(key);
+  if (existing) {
+    db.prepare('UPDATE memory SET value = ?, updated_at = CURRENT_TIMESTAMP WHERE key = ?').run(payload, key);
+  } else {
+    db.prepare('INSERT INTO memory (id, key, value) VALUES (?, ?, ?)').run(uuidv4(), key, payload);
   }
-
-  container.innerHTML = tasks
-    .map((task) => `
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title">${task.title}</div>
-          <div class="card-badge">${task.agent}</div>
-        </div>
-        <div class="card-team">${task.team}</div>
-        <div class="card-progress">
-          <div class="card-progress-bar" style="width: ${task.progress}%"></div>
-        </div>
-        <div style="color: var(--text-muted); font-size: 12px; margin: 8px 0;">${task.status}</div>
-        ${containerId === 'approvalBoard' ? `
-          <div class="card-actions">
-            <button class="approve-btn" onclick="approveTask('${task.id}')">Одобри</button>
-            <button class="reject-btn" onclick="rejectTask('${task.id}')">Одбиј</button>
-          </div>
-        ` : ''}
-      </div>
-    `)
-    .join('');
+  return { key, value };
 }
 
-async function loadAgents() {
-  try {
-    const res = await fetch('/api/agents');
-    state.agents = await res.json();
-    renderAgents();
-  } catch (error) {
-    console.error('Failed to load agents:', error);
-  }
+export async function memoryAppend(key, value) {
+  const current = (await memoryGet(key)) || [];
+  const next = Array.isArray(current) ? [...current, value] : [value];
+  return memorySet(key, next);
 }
 
-function renderAgents() {
-  const container = document.getElementById('agentsList');
-  container.innerHTML = state.agents
-    .map(
-      (team) => `
-      <div class="agent-group">
-        <div class="agent-team">${team.name}</div>
-        ${team.agents.map((agent) => `<div class="agent-item">• ${agent.name}</div>`).join('')}
-      </div>
-    `
-    )
-    .join('');
+export async function memorySearch(term) {
+  const rows = db.prepare('SELECT key, value FROM memory WHERE key LIKE ? OR value LIKE ?').all(`%${term}%`, `%${term}%`);
+  return rows.map((row) => ({ key: row.key, value: JSON.parse(row.value) }));
 }
 
-async function loadBoard() {
-  try {
-    const res = await fetch('/api/board');
-    state.tasks = await res.json();
-    renderBoard();
-  } catch (error) {
-    console.error('Failed to load board:', error);
-  }
+export async function createTask(task) {
+  const id = task.id || uuidv4();
+  const payload = JSON.stringify(task.payload || {});
+  db.prepare(`
+    INSERT INTO tasks (id, title, team, agent, status, progress, payload)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET title = excluded.title, status = excluded.status, progress = excluded.progress, updated_at = CURRENT_TIMESTAMP
+  `).run(id, task.title, task.team, task.agent, task.status || 'Тече', task.progress || 0, payload);
+
+  return { id, ...task, status: task.status || 'Тече', progress: task.progress || 0 };
 }
 
-async function submitCommand() {
-  const command = document.getElementById('commandInput').value.trim();
-  if (!command) return;
-
-  try {
-    await fetch(`/api/jobs?command=${encodeURIComponent(command)}`, { method: 'POST' });
-    document.getElementById('commandInput').value = '';
-    await loadBoard();
-  } catch (error) {
-    console.error('Failed to submit command:', error);
-  }
+export async function listTasks() {
+  const rows = db.prepare('SELECT * FROM tasks ORDER BY created_at DESC').all();
+  return rows.map((row) => ({ ...row, payload: row.payload ? JSON.parse(row.payload) : {} }));
 }
 
-async function approveTask(id) {
-  try {
-    await fetch(`/api/jobs/${id}/approve`, { method: 'POST' });
-    await loadBoard();
-  } catch (error) {
-    console.error('Failed to approve task:', error);
-  }
+export async function updateTaskStatus(id, status, progress) {
+  const existing = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id);
+  if (!existing) return null;
+  db.prepare('UPDATE tasks SET status = ?, progress = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(status, progress, id);
+  return { id, status, progress };
 }
 
-async function rejectTask(id) {
-  try {
-    await fetch(`/api/jobs/${id}/reject`, { method: 'POST' });
-    await loadBoard();
-  } catch (error) {
-    console.error('Failed to reject task:', error);
-  }
+export async function addEvent(taskId, type, detail) {
+  db.prepare('INSERT INTO events (id, task_id, type, detail) VALUES (?, ?, ?, ?)').run(uuidv4(), taskId, type, detail);
 }
 
-async function searchMemory() {
-  const term = document.getElementById('memorySearch').value.trim();
-  if (!term) {
-    document.getElementById('memoryResults').innerHTML = '';
-    return;
-  }
-
-  try {
-    const res = await fetch(`/api/memory/search?q=${encodeURIComponent(term)}`);
-    const results = await res.json();
-    const container = document.getElementById('memoryResults');
-    container.innerHTML = results
-      .map(
-        (item) => `
-      <div class="memory-item">
-        <div class="memory-key">${item.key}</div>
-        <div class="memory-value">${JSON.stringify(item.value)}</div>
-      </div>
-    `
-      )
-      .join('');
-  } catch (error) {
-    console.error('Failed to search memory:', error);
-  }
-}
-
-function setupVoiceInput() {
-  const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
-  recognition.lang = 'mk-MK';
-  recognition.onresult = (event) => {
-    const transcript = Array.from(event.results)
-      .map((result) => result[0].transcript)
-      .join('');
-    document.getElementById('commandInput').value = transcript;
-  };
-
-  document.getElementById('voiceBtn').addEventListener('click', () => {
-    recognition.start();
-  });
-}
-
-document.getElementById('submitBtn').addEventListener('click', submitCommand);
-document.getElementById('commandInput').addEventListener('keydown', (e) => {
-  if (e.ctrlKey && e.key === 'Enter') submitCommand();
-});
-document.getElementById('memorySearch').addEventListener('input', searchMemory);
-
-setupVoiceInput();
-connectWebSocket();
-loadAgents();
-loadBoard();
+export { db };

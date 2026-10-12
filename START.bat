@@ -1,20 +1,128 @@
-@echo off
-setlocal enabledelayedexpansion
+import express from 'express';
+import { WebSocketServer } from 'ws';
+import { createServer } from 'http';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import dotenv from 'dotenv';
+import {
+  initMemory,
+  listTasks,
+  memorySearch,
+  updateTaskStatus,
+  addEvent,
+  createTask,
+  memorySet
+} from './memory.js';
+import { loadAgents } from './agents.js';
+import { processMakeReels } from './jobs.js';
 
-echo Checking Node version...
-for /f "tokens=1 delims=." %%i in ('node -v') do (
-  set NODE_VERSION=%%i
-  set NODE_VERSION=!NODE_VERSION:v=!
-)
+dotenv.config();
 
-if "%NODE_VERSION%" LSS "24" (
-  echo Node 24+ is required
-  exit /b 1
-)
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const app = express();
+const server = createServer(app);
+const wss = new WebSocketServer({ server });
 
-echo Installing dependencies...
-call npm install
+const PORT = Number(process.env.PORT || 3100);
+const HOST = process.env.HOST || '127.0.0.1';
 
-echo Starting HUGO Studio...
-start http://127.0.0.1:3100
-call npm start
+app.use(express.json());
+app.use(express.static(path.join(__dirname, '..', 'public')));
+
+const broadcastClients = new Set();
+
+function broadcast(message) {
+  broadcastClients.forEach((client) => {
+    if (client.readyState === 1) {
+      client.send(JSON.stringify(message));
+    }
+  });
+}
+
+wss.on('connection', (ws) => {
+  broadcastClients.add(ws);
+  ws.send(JSON.stringify({ type: 'connected', message: 'Connected to HUGO Studio' }));
+  ws.on('close', () => broadcastClients.delete(ws));
+});
+
+app.get('/api/health', (req, res) => {
+  res.json({ ok: true, app: 'HUGO Studio', host: HOST, port: PORT });
+});
+
+app.get('/api/board', async (req, res) => {
+  const tasks = await listTasks();
+  res.json(tasks);
+});
+
+app.get('/api/memory/search', async (req, res) => {
+  const term = req.query.q || '';
+  const results = term ? await memorySearch(term) : [];
+  res.json(results);
+});
+
+app.get('/api/agents', async (req, res) => {
+  const agents = await loadAgents();
+  res.json(agents);
+});
+
+app.post('/api/jobs', async (req, res) => {
+  const command = String(req.query.command || req.body.command || 'Нова задача');
+
+  if (command.toLowerCase().includes('reels')) {
+    try {
+      const result = await processMakeReels(broadcast);
+      if (result.error) {
+        res.status(400).json({ ok: false, error: result.error });
+        return;
+      }
+      res.json({ ok: true, ...result });
+    } catch (error) {
+      res.status(500).json({ ok: false, error: error.message });
+    }
+    return;
+  }
+
+  const task = await createTask({
+    title: command,
+    team: 'Command',
+    agent: 'Planner',
+    status: 'Тече',
+    progress: 10,
+    payload: { command }
+  });
+
+  await memorySet('last_command', { id: task.id, command, timestamp: new Date().toISOString() });
+  await addEvent(task.id, 'created', command);
+  broadcast({ type: 'task_created', task });
+
+  res.json({ ok: true, task });
+});
+
+app.post('/api/jobs/:id/approve', async (req, res) => {
+  const id = req.params.id;
+  await updateTaskStatus(id, 'Готово', 100);
+  await addEvent(id, 'approved', 'Task approved');
+  broadcast({ type: 'task_updated', taskId: id, status: 'Готово', progress: 100 });
+  res.json({ ok: true });
+});
+
+app.post('/api/jobs/:id/reject', async (req, res) => {
+  const id = req.params.id;
+  await updateTaskStatus(id, 'Отклонено', 0);
+  await addEvent(id, 'rejected', 'Task rejected');
+  broadcast({ type: 'task_updated', taskId: id, status: 'Отклонено', progress: 0 });
+  res.json({ ok: true });
+});
+
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
+});
+
+async function boot() {
+  await initMemory();
+  server.listen(PORT, HOST, () => {
+    console.log(`HUGO Studio на http://${HOST}:${PORT}`);
+  });
+}
+
+boot().catch(console.error);
