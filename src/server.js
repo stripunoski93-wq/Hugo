@@ -1,189 +1,164 @@
-const state = {
-  tasks: [],
-  agents: [],
-  memory: [],
-  ws: null
-};
+import express from 'express';
+import { WebSocketServer } from 'ws';
+import { createServer } from 'http';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import dotenv from 'dotenv';
+import {
+  initMemory,
+  listTasks,
+  memorySearch,
+  updateTaskStatus,
+  addEvent,
+  createTask,
+  memorySet
+} from './memory.js';
+import { loadAgents } from './agents.js';
+import { processMakeReels } from './jobs.js';
+import { initBrowserContext, closeBrowser } from './browser.js';
+import { openAccountConnector, checkAllServices, serviceUrls } from './services.js';
 
-function connectWebSocket() {
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  state.ws = new WebSocket(`${protocol}//${window.location.host}`);
-  state.ws.onmessage = (event) => {
-    const data = JSON.parse(event.data);
-    if (data.type === 'task_created') {
-      state.tasks.push(data.task);
-      renderBoard();
-    } else if (data.type === 'task_updated') {
-      const task = state.tasks.find((t) => t.id === data.taskId);
-      if (task) {
-        task.status = data.status;
-        task.progress = data.progress;
-        renderBoard();
-      }
+dotenv.config();
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const app = express();
+const server = createServer(app);
+const wss = new WebSocketServer({ server });
+
+const PORT = Number(process.env.PORT || 3100);
+const HOST = process.env.HOST || '127.0.0.1';
+
+app.use(express.json());
+app.use(express.static(path.join(__dirname, '..', 'public')));
+
+const broadcastClients = new Set();
+
+function broadcast(message) {
+  broadcastClients.forEach((client) => {
+    if (client.readyState === 1) {
+      client.send(JSON.stringify(message));
     }
-  };
-}
-
-function renderBoard() {
-  const running = state.tasks.filter((t) => t.status === 'Тече');
-  const approval = state.tasks.filter((t) => t.status === 'Чека одобрување');
-  const done = state.tasks.filter((t) => t.status === 'Готово' || t.status === 'Отклонено');
-
-  renderCards(running, 'runningBoard');
-  renderCards(approval, 'approvalBoard');
-  renderCards(done, 'doneBoard');
-
-  document.getElementById('runningCount').textContent = running.length;
-  document.getElementById('approvalCount').textContent = approval.length;
-  document.getElementById('doneCount').textContent = done.length;
-}
-
-function renderCards(tasks, containerId) {
-  const container = document.getElementById(containerId);
-  if (!tasks.length) {
-    container.innerHTML = '<div class="card">Нема задачи.</div>';
-    return;
-  }
-
-  container.innerHTML = tasks
-    .map((task) => `
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title">${task.title}</div>
-          <div class="card-badge">${task.agent}</div>
-        </div>
-        <div class="card-team">${task.team}</div>
-        <div class="card-progress">
-          <div class="card-progress-bar" style="width: ${task.progress}%"></div>
-        </div>
-        <div style="color: var(--text-muted); font-size: 12px; margin: 8px 0;">${task.status}</div>
-        ${containerId === 'approvalBoard' ? `
-          <div class="card-actions">
-            <button class="approve-btn" onclick="approveTask('${task.id}')">Одобри</button>
-            <button class="reject-btn" onclick="rejectTask('${task.id}')">Одбиј</button>
-          </div>
-        ` : ''}
-      </div>
-    `)
-    .join('');
-}
-
-async function loadAgents() {
-  try {
-    const res = await fetch('/api/agents');
-    state.agents = await res.json();
-    renderAgents();
-  } catch (error) {
-    console.error('Failed to load agents:', error);
-  }
-}
-
-function renderAgents() {
-  const container = document.getElementById('agentsList');
-  container.innerHTML = state.agents
-    .map(
-      (team) => `
-      <div class="agent-group">
-        <div class="agent-team">${team.name}</div>
-        ${team.agents.map((agent) => `<div class="agent-item">• ${agent.name}</div>`).join('')}
-      </div>
-    `
-    )
-    .join('');
-}
-
-async function loadBoard() {
-  try {
-    const res = await fetch('/api/board');
-    state.tasks = await res.json();
-    renderBoard();
-  } catch (error) {
-    console.error('Failed to load board:', error);
-  }
-}
-
-async function submitCommand() {
-  const command = document.getElementById('commandInput').value.trim();
-  if (!command) return;
-
-  try {
-    await fetch(`/api/jobs?command=${encodeURIComponent(command)}`, { method: 'POST' });
-    document.getElementById('commandInput').value = '';
-    await loadBoard();
-  } catch (error) {
-    console.error('Failed to submit command:', error);
-  }
-}
-
-async function approveTask(id) {
-  try {
-    await fetch(`/api/jobs/${id}/approve`, { method: 'POST' });
-    await loadBoard();
-  } catch (error) {
-    console.error('Failed to approve task:', error);
-  }
-}
-
-async function rejectTask(id) {
-  try {
-    await fetch(`/api/jobs/${id}/reject`, { method: 'POST' });
-    await loadBoard();
-  } catch (error) {
-    console.error('Failed to reject task:', error);
-  }
-}
-
-async function searchMemory() {
-  const term = document.getElementById('memorySearch').value.trim();
-  if (!term) {
-    document.getElementById('memoryResults').innerHTML = '';
-    return;
-  }
-
-  try {
-    const res = await fetch(`/api/memory/search?q=${encodeURIComponent(term)}`);
-    const results = await res.json();
-    const container = document.getElementById('memoryResults');
-    container.innerHTML = results
-      .map(
-        (item) => `
-      <div class="memory-item">
-        <div class="memory-key">${item.key}</div>
-        <div class="memory-value">${JSON.stringify(item.value)}</div>
-      </div>
-    `
-      )
-      .join('');
-  } catch (error) {
-    console.error('Failed to search memory:', error);
-  }
-}
-
-function setupVoiceInput() {
-  const SpeechCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SpeechCtor) return;
-
-  const recognition = new SpeechCtor();
-  recognition.lang = 'mk-MK';
-  recognition.onresult = (event) => {
-    const transcript = Array.from(event.results)
-      .map((result) => result[0].transcript)
-      .join('');
-    document.getElementById('commandInput').value = transcript;
-  };
-
-  document.getElementById('voiceBtn').addEventListener('click', () => {
-    recognition.start();
   });
 }
 
-document.getElementById('submitBtn').addEventListener('click', submitCommand);
-document.getElementById('commandInput').addEventListener('keydown', (e) => {
-  if (e.ctrlKey && e.key === 'Enter') submitCommand();
+wss.on('connection', (ws) => {
+  broadcastClients.add(ws);
+  ws.send(JSON.stringify({ type: 'connected', message: 'Connected to HUGO Studio' }));
+  ws.on('close', () => broadcastClients.delete(ws));
 });
-document.getElementById('memorySearch').addEventListener('input', searchMemory);
 
-setupVoiceInput();
-connectWebSocket();
-loadAgents();
-loadBoard();
+app.get('/api/health', (req, res) => {
+  res.json({ ok: true, app: 'HUGO Studio', host: HOST, port: PORT });
+});
+
+app.get('/api/board', async (req, res) => {
+  const tasks = await listTasks();
+  res.json(tasks);
+});
+
+app.get('/api/memory/search', async (req, res) => {
+  const term = req.query.q || '';
+  const results = term ? await memorySearch(term) : [];
+  res.json(results);
+});
+
+app.get('/api/agents', async (req, res) => {
+  const agents = await loadAgents();
+  res.json(agents);
+});
+
+app.post('/api/services/check', async (req, res) => {
+  const status = await checkAllServices();
+  res.json(status);
+});
+
+app.post('/api/services/open/:service', async (req, res) => {
+  const service = req.params.service;
+  const url = serviceUrls[service];
+  
+  if (!url) {
+    res.status(400).json({ error: `Unknown service: ${service}` });
+    return;
+  }
+  
+  try {
+    const page = await openAccountConnector(service);
+    if (page) {
+      res.json({ ok: true, service, url, message: `Opened ${service} in browser. Sign in manually if needed.` });
+    } else {
+      res.status(500).json({ error: 'Failed to open browser tab' });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/jobs', async (req, res) => {
+  const command = String(req.query.command || req.body.command || 'Нова задача');
+
+  if (command.toLowerCase().includes('reels')) {
+    try {
+      const result = await processMakeReels(broadcast);
+      if (result.error) {
+        res.status(400).json({ ok: false, error: result.error });
+        return;
+      }
+      res.json({ ok: true, ...result });
+    } catch (error) {
+      res.status(500).json({ ok: false, error: error.message });
+    }
+    return;
+  }
+
+  const task = await createTask({
+    title: command,
+    team: 'Command',
+    agent: 'Planner',
+    status: 'Тече',
+    progress: 10,
+    payload: { command }
+  });
+
+  await memorySet('last_command', { id: task.id, command, timestamp: new Date().toISOString() });
+  await addEvent(task.id, 'created', command);
+  broadcast({ type: 'task_created', task });
+
+  res.json({ ok: true, task });
+});
+
+app.post('/api/jobs/:id/approve', async (req, res) => {
+  const id = req.params.id;
+  await updateTaskStatus(id, 'Готово', 100);
+  await addEvent(id, 'approved', 'Task approved');
+  broadcast({ type: 'task_updated', taskId: id, status: 'Готово', progress: 100 });
+  res.json({ ok: true });
+});
+
+app.post('/api/jobs/:id/reject', async (req, res) => {
+  const id = req.params.id;
+  await updateTaskStatus(id, 'Отклонено', 0);
+  await addEvent(id, 'rejected', 'Task rejected');
+  broadcast({ type: 'task_updated', taskId: id, status: 'Отклонено', progress: 0 });
+  res.json({ ok: true });
+});
+
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
+});
+
+async function boot() {
+  await initMemory();
+  await initBrowserContext();
+  
+  server.listen(PORT, HOST, () => {
+    console.log(`HUGO Studio на http://${HOST}:${PORT}`);
+  });
+
+  process.on('SIGINT', async () => {
+    console.log('Shutting down...');
+    await closeBrowser();
+    process.exit(0);
+  });
+}
+
+boot().catch(console.error);
