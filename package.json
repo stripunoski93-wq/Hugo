@@ -1,0 +1,20 @@
+{
+  "name": "hugo-studio",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "HUGO Studio - Content operations workspace",
+  "main": "src/server.js",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node test/smoke-test.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "sqlite3": "^5.1.7",
+    "uuid": "^11.0.0",
+    "ws": "^8.16.0"
+  }
+}
