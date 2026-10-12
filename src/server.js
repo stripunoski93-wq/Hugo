@@ -15,6 +15,7 @@ import {
   memorySet
 } from './memory.js';
 import { loadAgents } from './agents.js';
+import { processMakeReels } from './jobs.js';
 
 dotenv.config();
 
@@ -67,6 +68,21 @@ app.get('/api/agents', async (req, res) => {
 
 app.post('/api/jobs', async (req, res) => {
   const command = String(req.query.command || req.body.command || 'Нова задача');
+  
+  if (command.toLowerCase().includes('reels')) {
+    try {
+      const result = await processMakeReels(broadcast);
+      if (result.error) {
+        res.status(400).json({ ok: false, error: result.error });
+        return;
+      }
+      res.json({ ok: true, ...result });
+    } catch (error) {
+      res.status(500).json({ ok: false, error: error.message });
+    }
+    return;
+  }
+
   const task = await createTask({
     title: command,
     team: 'Command',

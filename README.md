@@ -1,10 +1,9 @@
 # HUGO Studio
 
-Local-first content operations workspace.
+Local-first content operations workspace with FFmpeg pipeline.
 
 ```bash
-npm install
 START.bat
 ```
 
-Runs on `127.0.0.1:3100`. Commands create task cards managed by 31 agents across 8 teams.
+Runs on `127.0.0.1:3100`. Commands like "направи reels" process video clips from `inbox/` directory with captions, 9:16 resize, thumbnails, and brand checks. Outputs to `out/<job>/` and `capcut-ready/`.
